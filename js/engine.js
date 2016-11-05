@@ -19,34 +19,47 @@ var Engine = (function(global) {
      * create the canvas element, grab the 2D context for that canvas
      * set the canvas elements height/width and add it to the DOM.
      */
+
     var doc = global.document,
         win = global.window,
         canvas = doc.createElement('canvas'),
         ctx = canvas.getContext('2d'),
-        lastTime;
+        lastTime,
+        div =doc.getElementById("container"),
+        progressBarCanvas =  doc.createElement('canvas'),
+        progressBarCtx =  progressBarCanvas.getContext('2d'),
+        startTime,
+        isTimeAdded,
+        animationId = null;
 
     canvas.width = 505;
     canvas.height = 606;
-    doc.body.appendChild(canvas);
 
-    /* This function serves as the kickoff point for the game loop itself
+    progressBarCanvas.width = 505;
+    progressBarCanvas.height = 30;
+
+    div.appendChild(canvas);
+    div.appendChild(progressBarCanvas);
+
+     /* This function serves as the kickoff point for the game loop itself
      * and handles properly calling the update and render methods.
      */
-    function main() {
+    function main(timestamp) {
         /* Get our time delta information which is required if your game
          * requires smooth animation. Because everyone's computer processes
          * instructions at different speeds we need a constant value that
          * would be the same for everyone (regardless of how fast their
          * computer is) - hurray time!
          */
-        var now = Date.now(),
-            dt = (now - lastTime) / 1000.0;
+        var now = Date.now();
+        var dt = (now - lastTime) / 1000.0;
 
         /* Call our update/render functions, pass along the time delta to
          * our update function since it may be used for smooth animation.
          */
         update(dt);
         render();
+        renderProgressBar(timestamp);
 
         /* Set our lastTime variable which is used to determine the time delta
          * for the next time this function is called.
@@ -56,7 +69,21 @@ var Engine = (function(global) {
         /* Use the browser's requestAnimationFrame function to call this
          * function again as soon as the browser is able to draw another frame.
          */
-        win.requestAnimationFrame(main);
+        animationId = win.requestAnimationFrame(main);
+
+        if(player.didPlayerWin || player.didPlayerLose){
+
+            endGame();
+            if(player.didPlayerWin){
+                 alert("You Win!!! Refresh the browser to play again!!!");
+             }
+             else{
+                alert("You Lost. Time runs out!!! Refresh the browser to play again!!!");
+             }
+            win.cancelAnimationFrame(animationId);
+
+        }
+
     }
 
     /* This function does some initial setup that should only occur once,
@@ -66,6 +93,8 @@ var Engine = (function(global) {
     function init() {
         reset();
         lastTime = Date.now();
+        startTime = null;
+        isTimeAdded = false;
         main();
     }
 
@@ -80,7 +109,7 @@ var Engine = (function(global) {
      */
     function update(dt) {
         updateEntities(dt);
-        // checkCollisions();
+        checkCollisions();
     }
 
     /* This is called by the update function and loops through all of the
@@ -94,7 +123,56 @@ var Engine = (function(global) {
         allEnemies.forEach(function(enemy) {
             enemy.update(dt);
         });
-        player.update();
+        //player.update();
+    }
+
+    /*
+     * Check for collision
+     * This function check for player collision against enemy and heart entity
+     * Player location is setted to original when colliding with enemy
+     * Game time is added 5000 mili seconds when player collides with a heart
+     */
+    function checkCollisions(){
+
+        //check collision against enemy
+        var playerXCoordTop = player.calculateXCoordTop();
+        var playerYCoordTop = player.calculateYCoordTop();
+        var playerXCoordBot = player.calculateXCoordBot();
+        var playerYCoordBot = player.calculateYCoordBot();
+
+        for(var i = 0; i < allEnemies.length; i++){
+            var enemyXCoordTop = allEnemies[i].calculateXCoordTop();
+            var enemyYCoordTop = allEnemies[i].calculateYCoordTop();
+            var enemyXCoordBot = allEnemies[i].calculateXCoordBot();
+            var enemyYCoordBot = allEnemies[i].calculateYCoordBot();
+
+            // Two rectangles are not overlapping when one is above or below or to the right or left of the other
+            if(isOverlapped(playerXCoordTop, playerYCoordTop, playerXCoordBot, playerYCoordBot, enemyXCoordTop, enemyYCoordTop, enemyXCoordBot, enemyYCoordBot)){
+                player.x = player.xLocationStart;
+                player.y = player.yLocationStart;
+                break;
+            }
+
+        }
+
+        //check collision against Heart
+        var heartXCoordTop = heart.calculateXCoordTop();
+        var heartYCoordTop = heart.calculateYCoordTop();
+        var heartXCoordBot = heart.calculateXCoordBot();
+        var heartYCoordBot = heart.calculateYCoordBot();
+
+        if(isOverlapped(playerXCoordTop, playerYCoordTop, playerXCoordBot, playerYCoordBot, heartXCoordTop, heartYCoordTop, heartXCoordBot, heartYCoordBot)){
+            startTime = startTime + 5000;
+            isTimeAdded = true;
+            heart.removeFromGame();
+
+        }
+
+    }
+
+    //check if two rectangles overlap
+    function isOverlapped(pointACoordTopX, pointACoordTopY, pointACoordBotX, pointACoordBotY, pointBCoordTopX, pointBCoordTopY, pointBCoordBotX, pointBCoordBotY){
+        return !(pointACoordBotY  < pointBCoordTopY || pointACoordTopY > pointBCoordBotY || pointACoordBotX < pointBCoordTopX || pointACoordTopX > pointBCoordBotX)
     }
 
     /* This function initially draws the "game level", it will then call
@@ -114,10 +192,11 @@ var Engine = (function(global) {
                 'images/stone-block.png',   // Row 3 of 3 of stone
                 'images/grass-block.png',   // Row 1 of 2 of grass
                 'images/grass-block.png'    // Row 2 of 2 of grass
-            ],
-            numRows = 6,
-            numCols = 5,
-            row, col;
+            ];
+         var  numRows = 6;
+         var  numCols = 5;
+         var  row;
+         var  col;
 
         /* Loop through the number of rows and columns we've defined above
          * and, using the rowImages array, draw the correct image for that
@@ -139,6 +218,35 @@ var Engine = (function(global) {
         renderEntities();
     }
 
+    /* This function draws the progress bar. It also determines whether the play should lose
+     * when the progress bar runs out of time. The default time is hard code to 20000 miliseconds
+     * This function also determine whether there should be added time when player picks up
+     * a heart.
+     */
+    function renderProgressBar(timestamp){
+        var progressBarTimeout = 20000;
+        if(!startTime){
+        startTime = timestamp;
+        }
+        var progress = timestamp - startTime;
+        var widthToDraw = (progress * progressBarCanvas.width)/progressBarTimeout;
+
+        if(progress < progressBarTimeout){
+            progressBarCtx.fillStyle = '#f4e842';
+            progressBarCtx.fillRect(0,0,widthToDraw,progressBarCanvas.height);
+        }
+        if(progress > progressBarTimeout){
+            player.didPlayerLose = true;
+        }
+
+        // clear the canvas and repaint the progress bar to reflect added time
+        if(isTimeAdded){
+            progressBarCtx.clearRect(0,0, 1000, 1000);
+            isTimeAdded = false;
+        }
+
+    }
+
     /* This function is called by the render function and is called on each game
      * tick. Its purpose is to then call the render functions you have defined
      * on your enemy and player entities within app.js
@@ -147,6 +255,7 @@ var Engine = (function(global) {
         /* Loop through all of the objects within the allEnemies array and call
          * the render function you have defined.
          */
+        heart.render();
         allEnemies.forEach(function(enemy) {
             enemy.render();
         });
@@ -160,6 +269,14 @@ var Engine = (function(global) {
      */
     function reset() {
         // noop
+
+    }
+
+    /* This function clear the canvas when the game ends
+     */
+    function endGame() {
+        ctx.clearRect(0,0, 1000, 1000);
+        progressBarCtx.clearRect(0,0, 1000, 1000);
     }
 
     /* Go ahead and load all of the images we know we're going to need to
@@ -171,7 +288,8 @@ var Engine = (function(global) {
         'images/water-block.png',
         'images/grass-block.png',
         'images/enemy-bug.png',
-        'images/char-boy.png'
+        'images/char-boy.png',
+        'images/Heart.png'
     ]);
     Resources.onReady(init);
 
